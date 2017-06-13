@@ -1,0 +1,476 @@
+---
+title: "R mini-workshop"
+output:
+  pdf_document: default
+  html_document: default
+---
+
+by Kristen DeAngelis
+created April 21 2012
+updated May 1 2017
+
+Before beginning this workshop:
+1. Install R from http://cran.r-project.org/
+    If you have R installed previously, check R for updates.
+    Install R studio http://rstudio.org/
+    
+2. Install the following packages; be sure that "Install dependencies" box is checked.
+    - vegan
+    - plotrix
+    - igraph
+    If you already have R, check packages for updates.
+    
+3. See http://www.stat.auckland.ac.nz/~paul/RGraphics/rgraphics.html
+     for graphics help, especially chapter 3.
+
+Contained in this file
+ 1. Read in files and explore their contents, structure
+ 2. Ordination using NMDS & plotting
+ 3. PCoA and joint plots
+ 4. Richness & diversity calculations
+ 5. Iterative t-tests
+ 6. Network analysis
+
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE)
+setwd("~/Documents/R/R_workshop")
+```
+
+## 1. Read in files and explore their contents, structure
+```{r read-files}
+d = read.delim("kmd_test_1000.txt", header=T)
+rownames(d) <- d$Cluster
+#d <- d[,-1]
+f = read.delim("kmd_test_second.txt", header=T)
+```
+
+dim(d) #1000 211
+names(d)
+str(d)
+head(d)
+
+How many taxa in each domain in the data set?
+```{r}
+levels(d$Taxonomy)
+sum(apply(d[,2:186],1,sum)) # 681050
+
+dim(d[d$Taxonomy=="Archaea",])[1] # 34
+dim(d[d$Taxonomy!="Bacteria",])[1] #832
+dim(d[d$Taxonomy=="Eukaryota",])[1] #134
+```
+
+Make a subset of just the bacteria
+```{r}
+d.bact = d[d$Taxonomy=="Bacteria",] 
+dim(d.bact) # 832 211
+```
+
+ <= == !=
+ %in% is very useful...
+
+
+######################################
+## 2. Ordination using NMDS & plotting
+
+Loac packages and know how to get help.
+```{r}
+library(vegan)
+help(metaMDS)
+```
+
+Subset the dataframe to include only the taxa relative abundances, and transpose so that samples are rows and columns are taxa. Call the NMDS function and view the summary for solutions, stress. 
+```{r}
+names(d)
+comm <- t(d[,2:186])
+mds <- metaMDS(comm, distance="bray", wascores=FALSE)
+mds # 2 dimensions and 0.1412 stress, very good solution
+plot(mds, type="t")
+```
+
+Remove the singletons to see how it changes the solution
+
+```{r}
+d.no1s = d[d$counts!=1,]
+dim(d.no1s) # 890
+comm1 = t(d.no1s[,2:186])
+mds1 = metaMDS(comm,distance="bray", wascores=FALSE)
+mds1 # 2 dimensions & 0.1422 stress, not much different
+```
+
+Three ways to look for statistical clustering of groups
+
+```{r}
+mrpp(comm1, f$type) # A=0.0367, p<0.001
+mrpp(comm1, f$site) # A=0.05662, p<0.001
+
+adonis(comm1 ~ f$type, method="bray") # ***
+adonis(comm1 ~ f$site, method="bray") # ***
+
+anosim.type <- anosim(comm1, f$type)
+summary(anosim.type) # R=0.2042 ***
+anosim.site <- anosim(comm1, f$site)
+summary(anosim.site) # R=0.2128 *** 
+```
+anosim R is zero if the grouping is completely random, one if
+the between group distance far outweighs the within-group distance.
+
+mantel() # to show difference between two sets
+varpart() # with hellinger transformation
+decostand() # will do the hellinger transformation for you, but
+			# it seems to be part of varpart so not needed now
+envfit() #
+
+
+Plot the solution giving the sites different colors and times different sizes
+
+```{r}
+str(mds)
+head(mds$points[,1:2])
+row.names(f) <- f$ID
+mds.f <- merge(f, mds$points[,1:2], by="row.names")
+names(mds.f)
+mds.f <- mds.f[,2:10]
+row.names(mds.f) <- mds.f$ID
+names(mds.f)
+
+# postscript("Test_NMDS.ps", height=7, width=7)
+# pdf("Test_NMDS.pdf", height=7, width=7)
+
+S = mds.f[mds.f$type=="Soil",]
+L = mds.f[mds.f$type=="Litt",]
+n=6
+sz = c(6, 5, 4, 3, 2, 1)
+#sz = c(6, 4, 3, 2.5, 2, 1)
+
+plot(mds.f[,8:9], type="n", xlab="NMDS1", ylab="NMDS2",
+	main="NMDS Ordination with Bray Distance (n=1,000 taxa)")
+
+lapply(1:n, function(i) points(S[((S$T==levels(S$T)[i])&(S$site=="SCF")),8:9], 
+	pch=21, cex=sz[i]+0.2, col="white", bg="blue"))
+lapply(1:n, function(i) points(S[((S$T==levels(S$T)[i])&(S$site=="Col2")),8:9], 
+	pch=21, cex=sz[i]+0.2, col="white", bg="skyblue"))
+lapply(1:n, function(i) points(S[((S$T==levels(S$T)[i])&(S$site=="BisV")),8:9], 
+	pch=21, cex=sz[i]+0.2, col="white", bg="orange"))
+lapply(1:n, function(i) points(S[((S$T==levels(S$T)[i])&(S$site=="BisR")),8:9], 
+	pch=21, cex=sz[i]+0.2, col="white", bg="red"))
+
+lapply(1:n, function(i) points(L[((L$T==levels(L$T)[i])&(L$site=="SCF")),8:9], 
+	pch=21, cex=sz[i], col="blue"))
+lapply(1:n, function(i) points(L[((L$T==levels(L$T)[i])&(L$site=="Col2")),8:9], 
+	pch=21, cex=sz[i], col="skyblue"))
+lapply(1:n, function(i) points(L[((L$T==levels(L$T)[i])&(L$site=="BisV")),8:9], 
+	pch=21, cex=sz[i], col="orange"))
+lapply(1:n, function(i) points(L[((L$T==levels(L$T)[i])&(L$site=="BisR")),8:9], 
+	pch=21, cex=sz[i], col="red"))
+
+legend(-1.6,-0.8,c("SCF","Col2","BisV","BisR"), pch=21,
+	col=c("blue","skyblue","orange","red"))
+```
+
+# If you use UniFrac, you can just read the PCoA points files into R and
+# plot in the same way. http://bmf2.colorado.edu/fastunifrac/
+
+help(ordiplot)
+help(ordihull)
+
+## 3.Principle CoOrdinates analysis and joint plots
+
+```{r}
+??cmdscale
+comm = t(d[,2:186])
+dmat = vegdist(comm, method="bray")
+pcoa = cmdscale(dmat)
+
+fit2 <- envfit(pcoa, f[,2:7], perm=999, display="sites")
+fit2
+
+plot(pcoa)
+plot(fit2, col="gray", display="sites")
+plot(fit2, p.max=0.1, col="red")
+```
+
+
+## 4. Richness and diversity calculations
+
+# First need to convert abundance tables to presence-absence
+
+```{r}
+d.pa <- d[,2:186]
+colnames(d.pa) = paste(f$ID, "_pa", sep="")
+threshold = 1
+for(x in 1:length(d.pa)){
+ 	d.pa[which(d.pa[,x]>=threshold),x] = 1
+ 	d.pa[which(d.pa[,x] < threshold),x] = 0
+}
+
+```
+
+Here is the calculation for total richness
+```{r}
+total.richness = sapply(d.pa,sum)
+f1 = cbind(f, total.richness) # merge
+```
+
+Statistics on total richness
+```{r}
+summary(aov(total.richness ~ site, data=f1)) # ***
+summary(aov(total.richness ~ site, data=f1[f1$type=="Soil",])) # **
+summary(aov(total.richness ~ site, data=f1[f1$type=="Litt",])) # **
+
+summary(aov(total.richness ~ T, data=f1[f1$type=="Soil",])) # **
+summary(aov(total.richness ~ T, data=f1[f1$type=="Litt",])) # ***
+TukeyHSD(aov(total.richness ~ T, data=f1[f1$type=="Litt",]))
+
+boxplot(total.richness ~ T, data=f1[f1$type=="Soil",], ylab="Richness (number of taxa)",
+	ylim=c(0,500),boxwex=0.3, at=1:6 - 0.2, ylim=c(0,4000), col="grey50")
+boxplot(total.richness ~ T, data=f1[f1$type=="Litt",], 
+	boxwex=0.3, at=1:6 + 0.2, add=TRUE)
+legend(1,500,c("Soil","Litter"), fill=c("grey50","white"))
+```
+
+# A different way to plot
+```{r}
+library(plotrix)
+
+t.test(total.richness ~ type, data=f1) # *
+
+tapply(f1$total.richness, f1$type, mean)
+# Litt 232.266, Soil 213.143
+tapply(f1$total.richness, f1$type, sd)
+# sd Litt 59.3, Soil 52.6
+x=c(1,2)
+y=c(232.3,213.1)
+yci=c(59.3, 52.6)
+
+stripchart(total.richness ~ type, data=f1, method="jitter", vertical=TRUE, pch=21,
+	ylab="Richness", xlim=c(0.5,2.5), ylim=c(0,500))
+text(1,232.2,"_________", cex=2)
+text(2,213.1,"_________", cex=2)
+plotCI(x,y,yci, add=TRUE, pch=NA, scol="grey10", sfrac=0.08)
+text(0.7,490,"P<0.05")
+
+```
+
+
+# Other measures of diversity
+```{r}
+divB = t(d[d$Taxonomy=="Bacteria",2:186])
+H <- diversity(divB, index="shannon") # Shannon's diversity
+# this can also calculate simpsons and inverse simpsons
+J = H/log(specnumber(divB)) # Pielou's J evenness index
+f2 = cbind(f1,H,J)
+```
+
+
+## 5. Iterative t-tests
+
+```{r}
+n=dim(d)[1]
+Ls = which(f[1:60,3]=="Litt")
+Ss = which(f[1:60,3]=="Soil")
+set1=d[,2:61] # looking at T1 and T2 only
+sln1 <- lapply(1:n, function(i) t.test(set1[i,Ls],set1[i,Ss])) 
+str(sln1)
+pvals1 <- lapply(1:n, function(i) sln1[[i]]$p.value)
+enrich1 <- lapply(1:n, function(i) (sln1[[i]]$estimate[1]-sln1[[i]]$estimate[2]))
+p.BH1 = p.adjust(as.numeric(pvals1), "BH")
+d.pvals = cbind(d[,1],as.numeric(pvals1),p.BH1,as.numeric(enrich1),d[,198:211])
+d.pvals = na.omit(d.pvals)
+dim(d.pvals)
+names(d.pvals)
+hist(d.pvals$p.BH1)
+```
+
+```{r}
+p.vals_lower = d.pvals[d.pvals[,4]<0,]
+dim(p.vals_lower)
+dim(d.pvals[d.pvals[,3]<0.05,]) # 137 are significant
+dim(p.vals_lower[p.vals_lower[,3]<0.05,]) # 62 are signficant and lower in litter
+write.table(p.vals_lower[p.vals_lower[,3]<0.05,],"Field_changers1.csv", sep=",")
+```
+
+
+## 6. Network analysis
+
+```{r}
+installed.packages()
+library(igraph)
+help(igraph)
+```
+# From Barberan et al. 2011
+# Non-random co-occurrence patterns were tested with the checkerboard score (C-score) under a null model preserving site frequencies (Stone and Roberts, 1990). A checkerboard unit is a 2 􏰁 2 matrix where both OTUs occur once but on different sites. For network inference, we calculated all possible Spearman’s rank correlations between OTUs with more than five sequences (1577 OTUs). This previous filtering step removed poorly represented OTUs and reduced network complexity, facilitating the determination of the core soil community. We considered a valid co-occurrence event to be a robust correlation if the Spearman’s correlation coefficient (r) was both 40.6 and statistically significant (P-value o0.01; Junker and Schreiber, 2008). The nodes in the reconstructed network represent the OTUs at 90% identity, whereas the edges (that is, connections) correspond to a strong and significant correlation between nodes (see Supplementary File for the resulting network in GRAPHML format). In order to describe the topology of the resulting network, a set of measures (that is, average node connectivity, average path length, diameter, cumulative degree distribution, clustering coefficient and modularity) were calculated (Newman, 2003). All statistical analyses were carried out in the R environment (http://www.r-project.org) using vegan (Oksanen et al., 2007) and igraph (Csa ́rdi and Nepusz, 2006) packages. Networks were explored and visualized with the interactive platform gephi (Bastian et al., 2009).# 
+
+```{r}
+help(cor.test)
+
+library(amap)
+
+comm = t(d[,2:186]) # transposed matrix s.t. taxa are columns and samples are rows
+colnames(comm) <- d[,1]
+spearman.d <- Dist(comm, method="spearman")
+spearman.d <- as.matrix(spearman.d)
+# but this gives only one matrix with only spearman S reported
+
+comm = comm[1:10,1:8] # samples, taxa
+
+sln = cor.test(comm[i,],comm[j,],method="spearman")
+cor.test(comm[i,],comm[j,],method="spearman")$estimate #(rho, >0.6 cutoff)
+cor.test(comm[i,],comm[j,],method="spearman")$p.value #(cutoff <0.05)
+
+x=comm[1:10,1:8]
+Dist(x,method="spearman")[i,j] = cor.test(x[i,],x[j,],method="spearman")$statistic
+
+#n = dim(comm)[1]
+n=10
+#n.taxa = dim(comm)[2]
+#n.sample = 10
+n.sample <- dim(comm)[1]
+dimnames <- list(row.names(comm), row.names(comm))
+spearman.p = matrix(nrow=n.sample, ncol=n.sample, data=NA, dimnames=dimnames) #p.value <0.05 cutoff
+
+for(i in 1:n.sample){
+	for(j in 1:n.sample){
+		spearman.p[i,j] = cor.test(comm[i,],comm[j,],method="spearman", exact=F)$estimate
+		cat((((i-1)*j)+j)," (",floor(j/n.sample*100),"% of taxa done for sample",i,"of",n.sample,")\n")
+	}
+}
+
+	# Warning: this cat line is a massive screen dump! This script is slow.
+		# Comment out the cat line if you don't want to see the progress of the nested for-loops.
+# Perform p.value calcualtions first, then sort the comm matrix based on the ones that pass
+# This will mean that only one round will be painfully slow
+
+colnames(spearman.p) = d[1:10,1]
+#colnames(spearman.p) = d[,1]
+rownames(spearman.p) = d[1:10,1]
+
+
+#n = dim(comm)[1]
+n=10
+#n.taxa = dim(comm)[2]
+n.taxa = 10
+spearman.r = matrix(nrow=n.taxa, ncol=n.taxa, data=NA)
+
+for(i in 1:n.taxa){
+	for(j in 1:n.taxa){
+		spearman.r[i,j] = cor.test(comm[i,],comm[j,],method="spearman", exact=F)$statistic
+		cat((((i-1)*js)+j)," (",floor(j/n.taxa*100),"% of taxa done for sample",i,"of",n,")\n")
+	}
+}
+
+#n = dim(comm)[1]
+n=10
+#n.taxa = dim(comm)[2]
+n.taxa = 10
+spearman.e = matrix(nrow=n.taxa, ncol=n.taxa, data=NA) #estimate (rho, >0.6 cutoff)
+
+for(i in 1:n.taxa){
+	for(j in 1:n.taxa){
+		spearman.e[i,j] = cor.test(comm[i,],comm[j,],method="spearman", exact=F)$estimate
+		cat((((i-1)*js)+j)," (",floor(j/n.taxa*100),"% of taxa done for sample",i,"of",n,")\n")
+	}
+}
+```
+
+Wordclouds
+from http://www.sthda.com/english/wiki/text-mining-and-word-cloud-fundamentals-in-r-5-simple-steps-you-should-know
+```{r packages}
+install.packages("tm")  # for text mining
+install.packages("SnowballC") # for text stemming
+install.packages("wordcloud") # word-cloud generator 
+install.packages("RColorBrewer") # color palettes
+# Load
+library("tm")
+library("SnowballC")
+library("wordcloud")
+library("RColorBrewer")
+```
+
+Read in from a plain text file or a text file from internet
+```{r}
+con <- file("tenurewordcloud.txt", open="r")
+line <- readLines(con)
+close(con)
+
+text <- readLines("tenurewordcloud.txt", n = 500)
+# includes abstracts and key words for all peer-reviewed publications originating at UMass
+#filePath <- "http://www.sthda.com/sthda/RDoc/example-files/martin-luther-king-i-have-a-dream-speech.txt"
+#text <- readLines(filePath)
+```
+
+Make a corpus
+```{r}
+docs <- Corpus(VectorSource(text))
+inspect(docs)
+```
+
+Text transformation
+```{r}
+toSpace <- content_transformer(function (x , pattern ) gsub(pattern, " ", x))
+docs <- tm_map(docs, toSpace, "/")
+docs <- tm_map(docs, toSpace, "@")
+docs <- tm_map(docs, toSpace, "\\|")
+```
+
+Clean text
+```{r}
+# Convert the text to lower case
+docs <- tm_map(docs, content_transformer(tolower)) #Error
+# Remove numbers
+docs <- tm_map(docs, removeNumbers)
+# Remove english common stopwords
+docs <- tm_map(docs, removeWords, stopwords("english")) #Error
+# Remove your own stop word
+# specify your stopwords as a character vector
+docs <- tm_map(docs, removeWords, c("blabla1", "blabla2")) #Error
+# Remove punctuations
+docs <- tm_map(docs, removePunctuation)
+# Eliminate extra white spaces
+docs <- tm_map(docs, stripWhitespace)
+# Text stemming
+# docs <- tm_map(docs, stemDocument)
+```
+
+Build a term-document matrix
+```{r}
+dtm <- TermDocumentMatrix(docs)
+m <- as.matrix(dtm)
+v <- sort(rowSums(m),decreasing=TRUE)
+d <- data.frame(word = names(v),freq=v)
+
+head(d, 20)
+red <- c("the","and","that","for","with","was","this","were","from","are","but","which","these","have","found","however","between","using","suggest","has","also","not","while","may","will","more","increased","change","involved","lack")
+d2 <- filter(d, !word %in% red) # this is a df of the redacteds
+head(d2, 40)
+
+"%out%" <- function(x, y) x[!x %in% y] #  x without y
+d2 <- filter(d, word %out% red)
+
+head(d, 20)
+d[11:20,]
+d <- d[-c(13,14,15)]
+head(d, 20)
+```
+
+Generate the Word cloud
+```{r}
+d <- d2
+set.seed(1234)
+wordcloud(words = d$word, freq = d$freq^1.25 min.freq = 1,
+          max.words=15, random.order=FALSE, rot.per=0, 
+          colors=brewer.pal(8, "DDark2))
+set.seed(12345)
+wordcloud(words = d$word, freq = d$freq, min.freq = 2,
+          max.words=100, random.order=FALSE, rot.per=0.35, 
+          colors=brewer.pal(8, "Dark2"))
+
+```
+
+Explore frequent terms and their associations
+```{r}
+findFreqTerms(dtm, lowfreq = 4)
+findAssocs(dtm, terms = "freedom", corlimit = 0.3)
+head(d, 10)
+```
+
